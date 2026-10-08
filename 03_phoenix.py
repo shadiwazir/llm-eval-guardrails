@@ -19,6 +19,9 @@ from phoenix.otel import register
 
 from shared.app import run_app
 from shared.data import EVAL_DATASET
+from shared.openai_judge import OpenAIJudge
+
+judge = OpenAIJudge()  # this variation is OpenAI-only
 
 # 1) Start the local Phoenix UI + OTel collector, then auto-instrument OpenAI.
 px.launch_app()
@@ -36,7 +39,7 @@ CORRECTNESS_TEMPLATE = (
 def traced_app(question: str) -> dict:
     """Run the guarded app inside a span that records guardrail verdicts."""
     with tracer.start_as_current_span("guarded-support-bot") as span:
-        result = run_app(question)  # inner OpenAI call is auto-traced
+        result = run_app(question, judge)  # inner OpenAI call is auto-traced
         # Guardrail outcome as span attributes -> visible per trace in Phoenix.
         span.set_attribute("guardrail.blocked", result.blocked)
         span.set_attribute("guardrail.input_violations", ",".join(result.input_report.violations) or "none")

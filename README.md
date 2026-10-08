@@ -9,11 +9,13 @@ whose decisions are measured by evals**.
 
 | File | Tool | What it shows |
 |---|---|---|
-| `01_mlflow_genai.py` | MLflow 3 GenAI | `mlflow.genai.evaluate` + LLM scorers + `@mlflow.trace` / OpenAI autolog tracing |
-| `02_langfuse.py` | Langfuse | `@observe` traces + eval & guardrail scores attached to each trace |
-| `03_phoenix.py` | Arize Phoenix | Local OpenInference tracing + `create_classifier` LLM-judge evals |
+| `run.py` | — | Single entry point: `python run.py <variation> [--judge openai\|jev]` |
+| `01_mlflow_genai_{openai,jev}.py` | MLflow 3 GenAI | `mlflow.genai.evaluate` + LLM scorers + `@mlflow.trace` / OpenAI autolog tracing |
+| `02_langfuse_{openai,jev}.py` | Langfuse | `@observe` traces + eval & guardrail scores attached to each trace |
+| `03_phoenix.py` | Arize Phoenix | Local OpenInference tracing + `create_classifier` LLM-judge evals (OpenAI only) |
 | `04_guardrails_ai_demo.py` | guardrails-ai | Dedicated guardrail library (rules + Hub validators) |
-| `shared/` | — | Reused by all: `app.py` (guarded pipeline), `guardrails.py` (rule + LLM-judge checks), `llm.py`, `data.py` (eval dataset incl. one adversarial item) |
+| `pipelines/` | — | Judge-agnostic tracing/eval wiring for MLflow and Langfuse; the judge is injected |
+| `shared/` | — | `app.py` (guarded pipeline), `guardrails.py` (rule checks + injected safety judge), `judge.py` (Judge contract), `openai_judge.py` / `jev_judge.py` (backends), `llm.py`, `data.py` (eval dataset incl. one adversarial item) |
 
 ## Setup
 
@@ -46,30 +48,33 @@ Required: `OPENAI_API_KEY` (all variations call OpenAI, incl. LLM judges).
 
 ## Judge backend: OpenAI or Jev
 
-All judge calls (the safety gate in `shared/guardrails.py`, correctness in
-`02_langfuse.py`) can run on **OpenAI** (default) or **Jev** — TypeSafe's
-System One decision model, which returns typed probabilities instead of text
-and is much cheaper per judgment. Select the backend in `.env`:
+The judge (safety gate inside the app + eval scoring) is **injected**, not
+switched on. Each `*_openai.py` / `*_jev.py` file builds exactly one judge and
+passes it to the shared pipeline, so no file branches on the backend.
 
-```
-JUDGE_BACKEND=jev          # requires TYPESAFE_API_KEY
-```
+- **OpenAI**: LLM-as-judge; MLflow uses its built-in scorers.
+- **Jev** (TypeSafe System One): returns typed probabilities instead of text,
+  much cheaper per judgment. Needs `TYPESAFE_API_KEY` and fails fast without
+  it (no silent fallback to OpenAI). In MLflow it runs as custom scorers
+  (`jev_correctness/relevance/safety`).
 
-or per run: `python 01_mlflow_genai.py --judge jev`. Missing key -> warns once
-and falls back to OpenAI. In `01`, `--judge jev` also swaps the three built-in
-MLflow scorers for Jev-backed custom scorers (`jev_correctness/relevance/
-safety`), and every trace is tagged with the judge verdict (incl. the Jev
-probability) — the only Jev evidence in traces, since autolog only instruments
-OpenAI calls.
+Every MLflow trace is tagged with `guardrail.judge_backend` and
+`guardrail.judge_verdict` (incl. the Jev probability) — Jev calls create no
+spans because autolog only instruments the OpenAI client.
+
+Adding a backend = one class implementing `shared/judge.py` + one entry file
+per variation + one line in `run.py`.
 
 ## Run
 
 ```bash
-python 01_mlflow_genai.py
-python 02_langfuse.py
-python 03_phoenix.py
-python 04_guardrails_ai_demo.py
+python run.py mlflow --judge openai     # or --judge jev (default: openai)
+python run.py langfuse --judge jev
+python run.py phoenix
+python run.py guardrails-ai
 ```
+
+Each entry file also runs directly, e.g. `python 01_mlflow_genai_jev.py`.
 
 Each script runs the same guarded support-bot over the same dataset and ends
 with the same evidence: **guardrail compliance** (blocked exactly when it
