@@ -1,0 +1,18 @@
+# Core (all variations)
+openai>=1.50
+python-dotenv>=1.0
+pandas>=2.0
+
+# Variation 01 — MLflow 3 GenAI (evaluate + tracing)
+mlflow>=3.1
+
+# Variation 02 — Langfuse (tracing + scores)
+langfuse>=3.0
+
+# Variation 03 — Arize Phoenix (local tracing + evals)
+# >=20 needed for the phoenix.evals create_classifier API used in 03_phoenix.py
+arize-phoenix>=20.0
+openinference-instrumentation-openai>=0.1
+
+# Variation 04 — guardrails-ai
+guardrails-ai>=0.6
