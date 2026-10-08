@@ -11,6 +11,9 @@ Needs a Langfuse server: free cloud project (https://cloud.langfuse.com) or
 Run:  python 02_langfuse.py
 """
 
+import argparse
+import os
+
 from langfuse import get_client, observe
 from langfuse.openai import openai  # drop-in replacement that auto-traces
 
@@ -36,9 +39,22 @@ def traced_app(question: str) -> str:
 
 
 def correctness_judge(question: str, answer: str, expected: str) -> float:
-    """LLM-as-judge correctness score (1 = matches the expected answer)."""
+    """Correctness score (1 = matches expected) via the JUDGE_BACKEND judge."""
     if expected == "BLOCKED":  # adversarial rows are scored by guardrail_blocked
         return 1.0 if answer.startswith("Sorry") else 0.0
+
+    if os.getenv("JUDGE_BACKEND", "openai").lower() == "jev":
+        # Jev path: one Noul question; dict state fields are referenced in
+        # the instructions with `backticks`.
+        from shared.jev_judge import THRESHOLD, jev_binary
+
+        p = jev_binary(
+            {"question": question, "answer": answer, "expected": expected},
+            instructions="Does `answer` convey the same meaning as `expected` for the customer's `question`?",
+        )
+        return 1.0 if p >= THRESHOLD else 0.0
+
+    # OpenAI path: 1/0 verdict, parsed from text.
     verdict = llm_judge(
         "Score 1 if ANSWER matches the EXPECTED meaning, else 0. Reply with just 1 or 0.\n\n"
         f"QUESTION: {question}\nANSWER: {answer}\nEXPECTED: {expected}",
@@ -48,6 +64,13 @@ def correctness_judge(question: str, answer: str, expected: str) -> float:
 
 
 def main() -> None:
+    # Optional CLI override for the judge backend (default: JUDGE_BACKEND env).
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--judge", choices=["openai", "jev"], help="judge backend")
+    args = parser.parse_args()
+    if args.judge:
+        os.environ["JUDGE_BACKEND"] = args.judge  # judges read env at call time
+
     scores = []
     for item in EVAL_DATASET:
         answer = traced_app(item["question"])  # each call = one Langfuse trace

@@ -16,3 +16,6 @@ openinference-instrumentation-openai>=0.1
 
 # Variation 04 — guardrails-ai
 guardrails-ai>=0.6
+
+# Judge backend: Jev / TypeSafe System One (only needed when JUDGE_BACKEND=jev)
+typesafe-sdk>=0.7.2

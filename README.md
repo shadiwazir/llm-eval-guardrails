@@ -44,6 +44,24 @@ Required: `OPENAI_API_KEY` (all variations call OpenAI, incl. LLM judges).
   `guardrails hub install hub://guardrails/toxic_language`
   `guardrails hub install hub://guardrails/detect_pii`.
 
+## Judge backend: OpenAI or Jev
+
+All judge calls (the safety gate in `shared/guardrails.py`, correctness in
+`02_langfuse.py`) can run on **OpenAI** (default) or **Jev** — TypeSafe's
+System One decision model, which returns typed probabilities instead of text
+and is much cheaper per judgment. Select the backend in `.env`:
+
+```
+JUDGE_BACKEND=jev          # requires TYPESAFE_API_KEY
+```
+
+or per run: `python 01_mlflow_genai.py --judge jev`. Missing key -> warns once
+and falls back to OpenAI. In `01`, `--judge jev` also swaps the three built-in
+MLflow scorers for Jev-backed custom scorers (`jev_correctness/relevance/
+safety`), and every trace is tagged with the judge verdict (incl. the Jev
+probability) — the only Jev evidence in traces, since autolog only instruments
+OpenAI calls.
+
 ## Run
 
 ```bash
