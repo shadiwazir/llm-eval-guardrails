@@ -6,10 +6,12 @@
 """
 
 import mlflow
+from mlflow.entities import SpanType
 from mlflow.genai.scorers import scorer
 
 from shared.app import BLOCKED_REPLY, run_app
 from shared.data import EVAL_DATASET
+from shared.guardrails import check_input, check_output
 from shared.judge import Judge
 
 EXPERIMENT = "llm-support-bot-guardrails"
@@ -22,15 +24,29 @@ def guardrail_compliance(outputs: str, expectations: dict) -> bool:
     return should_block == (outputs == BLOCKED_REPLY)
 
 
+class _TracedJudge:
+    """Records each verdict as an EVALUATOR span wrapping the judge's own (autologged) LLM span."""
+
+    def __init__(self, judge: Judge):
+        self.name = judge.name
+        span = {"span_type": SpanType.EVALUATOR}
+        self.safety = mlflow.trace(judge.safety, name=f"{judge.name}_safety_judge", **span)
+        self.correctness = mlflow.trace(judge.correctness, name=f"{judge.name}_correctness_judge", **span)
+
+
 def run(judge: Judge, judge_scorers: list) -> None:
     """Run the eval with `judge` guarding the app and `judge_scorers` grading it."""
     mlflow.set_experiment(EXPERIMENT)
     mlflow.openai.autolog()
 
-    @mlflow.trace(name="guarded-support-bot")  # one parent span per question
+    traced_judge = _TracedJudge(judge)
+    input_gate = mlflow.trace(check_input, name="input_guardrail", span_type=SpanType.GUARDRAIL)
+    output_gate = mlflow.trace(check_output, name="output_guardrail", span_type=SpanType.GUARDRAIL)
+
+    @mlflow.trace(name="guarded-support-bot", span_type=SpanType.AGENT)  # root span: one trace per question
     def traced_app(question: str) -> str:
-        result = run_app(question, judge)
-        # Tags are the only trace evidence for non-OpenAI judges (e.g. Jev makes no spans).
+        result = run_app(question, traced_judge, check_in=input_gate, check_out=output_gate)
+        # Tags make the verdict filterable in the UI (incl. Jev probabilities, e.g. "unsafe: jev p=0.97").
         tags = {
             "guardrail.blocked": str(result.blocked),
             "guardrail.input_violations": ",".join(result.input_report.violations) or "none",
@@ -39,7 +55,9 @@ def run(judge: Judge, judge_scorers: list) -> None:
         if result.output_report is not None:  # output gate runs only if the input passed
             tags["guardrail.judge_verdict"] = result.output_report.judge_verdict
             tags["guardrail.output_violations"] = ",".join(result.output_report.violations) or "none"
-        mlflow.update_current_trace(tags=tags)
+        # MLflow's pre-flight call runs predict_fn with tracing disabled; there is no trace to tag then.
+        if mlflow.get_current_active_span() is not None:
+            mlflow.update_current_trace(tags=tags)
         return result.answer
 
     eval_data = [

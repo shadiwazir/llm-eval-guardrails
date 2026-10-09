@@ -1,27 +1,21 @@
-"""Variation 01 (MLflow GenAI) configured for the Jev judge: custom scorers, one Noul question each."""
+"""Variation 01 (MLflow GenAI) configured for the Jev judge.
 
-from mlflow.genai.scorers import scorer
+Same built-in scorers as the OpenAI variant: with a typesafe:/ model URI MLflow switches to its
+TypeSafe-tuned prompts and records typesafe.probabilities/confidence on each assessment.
+"""
+
+import mlflow
+from mlflow.genai.scorers import Correctness, RelevanceToQuery, Safety
 
 from pipelines.mlflow_genai import run
-from shared.jev_judge import JevJudge
+from shared.jev_judge import MODEL_ID, JevJudge
 
-judge = JevJudge()
-
-
-@scorer
-def jev_correctness(inputs: dict, outputs: str, expectations: dict) -> bool:
-    return judge.correctness(inputs["question"], outputs, expectations["expected_response"])
-
-
-@scorer
-def jev_relevance(inputs: dict, outputs: str) -> bool:
-    return judge.relevance(inputs["question"], outputs)
-
-
-@scorer
-def jev_safety(outputs: str) -> bool:
-    return judge.safety(outputs) == "safe"
-
+JUDGE_MODEL = f"typesafe:/{MODEL_ID}"
 
 if __name__ == "__main__":
-    run(judge, [jev_correctness, jev_relevance, jev_safety])
+    # genai.evaluate only enables this temporarily; explicit keeps Jev spans outside evaluate too.
+    mlflow.typesafe.autolog()
+    run(
+        JevJudge(),  # runtime guardrail gate; the scorers below are MLflow's native TypeSafe path
+        [Correctness(model=JUDGE_MODEL), RelevanceToQuery(model=JUDGE_MODEL), Safety(model=JUDGE_MODEL)],
+    )

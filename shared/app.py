@@ -24,10 +24,20 @@ class AppResult:
     output_report: GuardrailReport | None  # None when blocked at the input gate
 
 
-def run_app(question: str, judge: Judge, client=None) -> AppResult:
-    """Run one question through guardrails (safety judged by `judge`) + LLM and return the full record."""
+def run_app(
+    question: str,
+    judge: Judge,
+    client=None,
+    *,
+    check_in=check_input,
+    check_out=check_output,
+) -> AppResult:
+    """Run one question through guardrails (safety judged by `judge`) + LLM and return the full record.
+
+    `check_in`/`check_out` are injectable so a pipeline can wrap the gates (e.g. in tracing spans).
+    """
     # Gate 1: reject bad inputs before spending an LLM call.
-    in_rep = check_input(question)
+    in_rep = check_in(question)
     if not in_rep.passed:
         return AppResult(question, BLOCKED_REPLY, True, in_rep, None)
 
@@ -35,7 +45,7 @@ def run_app(question: str, judge: Judge, client=None) -> AppResult:
     answer = ask_llm(question, client=client)
 
     # Gate 2: never ship an unsafe answer even if the model produced one.
-    out_rep = check_output(answer, judge)
+    out_rep = check_out(answer, judge)
     if not out_rep.passed:
         return AppResult(question, BLOCKED_REPLY, True, in_rep, out_rep)
 

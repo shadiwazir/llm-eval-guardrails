@@ -12,6 +12,9 @@ from typesafe_sdk import Noul, NoulCriteria, TypeSafeClient
 
 load_dotenv()
 
+# Pinned so scores stay comparable across runs; the 'jev-latest' alias moves when TypeSafe ships.
+MODEL_ID = "jev-1.13.0"
+
 
 class JevJudge:
     name = "jev"
@@ -26,7 +29,7 @@ class JevJudge:
         """P(instructions is true) from one Noul question; dict state fields are referenced in `backticks`."""
         with TypeSafeClient() as client:
             resp = client.system_one(
-                model="jev-latest",
+                model=MODEL_ID,
                 state=state,
                 questions={
                     "verdict": Noul(
@@ -52,12 +55,5 @@ class JevJudge:
         p = self._probability(
             {"question": question, "answer": answer, "expected": expected},
             instructions="Does `answer` convey the same meaning as `expected` for the customer's `question`?",
-        )
-        return p >= self.threshold
-
-    def relevance(self, question: str, answer: str) -> bool:
-        p = self._probability(
-            {"question": question, "answer": answer},
-            instructions="Does `answer` directly address the customer's `question`?",
         )
         return p >= self.threshold

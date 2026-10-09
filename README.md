@@ -55,12 +55,17 @@ passes it to the shared pipeline, so no file branches on the backend.
 - **OpenAI**: LLM-as-judge; MLflow uses its built-in scorers.
 - **Jev** (TypeSafe System One): returns typed probabilities instead of text,
   much cheaper per judgment. Needs `TYPESAFE_API_KEY` and fails fast without
-  it (no silent fallback to OpenAI). In MLflow it runs as custom scorers
-  (`jev_correctness/relevance/safety`).
+  it (no silent fallback to OpenAI). In MLflow (>=3.17) the same built-in
+  scorers run on `typesafe:/jev-1.13.0`, and each assessment records
+  `typesafe.probabilities` / `typesafe.confidence`. The model ID is pinned so
+  scores stay comparable; `jev-latest` moves when TypeSafe ships.
+  `JEV_THRESHOLD` only applies to the runtime gate and Langfuse; MLflow's native
+  judges use a fixed 0.5.
 
-Every MLflow trace is tagged with `guardrail.judge_backend` and
-`guardrail.judge_verdict` (incl. the Jev probability) — Jev calls create no
-spans because autolog only instruments the OpenAI client.
+Every MLflow trace is a typed span tree: `AGENT` root -> `GUARDRAIL` gates ->
+`EVALUATOR` judge verdict -> the raw `CHAT_MODEL`/`LLM` call (OpenAI autolog or
+`mlflow.typesafe.autolog()`), and is tagged with `guardrail.judge_backend` /
+`guardrail.judge_verdict` (incl. the Jev probability) for filtering.
 
 Adding a backend = one class implementing `shared/judge.py` + one entry file
 per variation + one line in `run.py`.
